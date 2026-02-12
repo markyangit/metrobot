@@ -1,6 +1,13 @@
 import { Bot, type Context, InlineKeyboard } from "grammy";
 import { getSchedules, getStations } from "../scraper/metrofor.ts";
 import type { Station } from "../types/index.ts";
+import {
+	logCallback,
+	logCommand,
+	logError,
+	logScheduleFetch,
+	logStationsFetch,
+} from "../utils/logger.ts";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 
@@ -30,6 +37,8 @@ function getSession(userId: number): SessionData {
  * Comando /start
  */
 bot.command("start", async (ctx) => {
+	logCommand(ctx, "start");
+
 	await ctx.reply(
 		"🚇 Bem-vindo ao Metrobot!\n\n" +
 			"Eu posso ajudá-lo a consultar horários do Metrofor (Linha Sul).\n\n" +
@@ -43,12 +52,18 @@ bot.command("start", async (ctx) => {
  */
 bot.command("horario", async (ctx) => {
 	if (!ctx.from) return;
+	logCommand(ctx, "horario");
+
 	const session = getSession(ctx.from.id);
 
 	try {
 		// Buscar lista de estações
 		await ctx.reply("🔄 Carregando estações...");
+		const startTime = Date.now();
 		const stations = await getStations();
+		const duration = Date.now() - startTime;
+
+		logStationsFetch(ctx.from.id, stations.length, duration);
 		session.stations = stations;
 
 		// Resetar seleções anteriores
@@ -75,7 +90,7 @@ bot.command("horario", async (ctx) => {
 			reply_markup: keyboard,
 		});
 	} catch (error) {
-		console.error("Error in /horario command:", error);
+		logError(ctx, error, "horario_command");
 		await ctx.reply(
 			"❌ Erro ao carregar estações. Tente novamente mais tarde.",
 		);
@@ -88,6 +103,8 @@ bot.command("horario", async (ctx) => {
 bot.callbackQuery(/^origin_(.+)$/, async (ctx) => {
 	const originId = ctx.match[1];
 	if (!originId) return;
+
+	logCallback(ctx, `select_origin:${originId}`);
 
 	const session = getSession(ctx.from.id);
 	session.originId = originId;
@@ -128,6 +145,8 @@ bot.callbackQuery(/^dest_(.+)$/, async (ctx) => {
 	const destinationId = ctx.match[1];
 	if (!destinationId) return;
 
+	logCallback(ctx, `select_destination:${destinationId}`);
+
 	const session = getSession(ctx.from.id);
 	session.destinationId = destinationId;
 
@@ -152,6 +171,8 @@ bot.callbackQuery(/^dest_(.+)$/, async (ctx) => {
  * Callback para "Agora"
  */
 bot.callbackQuery("time_now", async (ctx) => {
+	logCallback(ctx, "time_now");
+
 	const session = getSession(ctx.from.id);
 
 	await ctx.answerCallbackQuery();
@@ -171,6 +192,8 @@ bot.callbackQuery("time_now", async (ctx) => {
  * Callback para "Escolher data/hora"
  */
 bot.callbackQuery("time_custom", async (ctx) => {
+	logCallback(ctx, "time_custom");
+
 	await ctx.answerCallbackQuery();
 	await ctx.editMessageText(
 		"📅 Recurso em desenvolvimento.\n\n" +
@@ -188,16 +211,34 @@ async function fetchAndShowSchedule(
 	destinationId: string,
 	dateTime?: string,
 ) {
+	const startTime = Date.now();
+
 	try {
 		const scheduleInfo = await getSchedules(originId, destinationId, dateTime);
+		const duration = Date.now() - startTime;
 
 		if (!scheduleInfo) {
+			logScheduleFetch(
+				ctx.from?.id || 0,
+				originId,
+				destinationId,
+				false,
+				duration,
+			);
 			await ctx.reply(
 				"❌ Não foi possível obter informações de horários.\n" +
 					"Tente novamente mais tarde ou verifique se as estações selecionadas estão corretas.",
 			);
 			return;
 		}
+
+		logScheduleFetch(
+			ctx.from?.id || 0,
+			originId,
+			destinationId,
+			true,
+			duration,
+		);
 
 		// Formatar mensagem de resposta
 		let message = `🚇 Viagem: ${scheduleInfo.origin} → ${scheduleInfo.destination}\n\n`;
@@ -220,7 +261,15 @@ async function fetchAndShowSchedule(
 
 		await ctx.reply(message);
 	} catch (error) {
-		console.error("Error fetching schedule:", error);
+		const duration = Date.now() - startTime;
+		logScheduleFetch(
+			ctx.from?.id || 0,
+			originId,
+			destinationId,
+			false,
+			duration,
+		);
+		logError(ctx, error, "fetch_schedule");
 		await ctx.reply("❌ Erro ao buscar horários. Tente novamente mais tarde.");
 	}
 }

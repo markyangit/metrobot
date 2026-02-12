@@ -1,6 +1,8 @@
 import { bot } from "./bot/index.ts";
+import { logBotStart, logBotStop } from "./utils/logger.ts";
 
 console.log("🤖 Starting Metrobot...");
+logBotStart();
 
 // Start the bot
 bot.start({
@@ -13,6 +15,7 @@ bot.start({
 // Graceful shutdown
 const shutdown = async () => {
 	console.log("\n🛑 Shutting down bot...");
+	logBotStop();
 	await bot.stop();
 	console.log("✅ Bot stopped successfully");
 	process.exit(0);
